@@ -840,15 +840,28 @@ def show_setup_wizard():
                     st.session_state.selected_custom_polygon_option = st.session_state.selected_custom_polygon_option
 
                 # Load and prepare network
-                with st.spinner("Preparing network..."):
-                    st.session_state.graph = load_and_prepare_graph_from_polygon(
-                        st.session_state.selected_polygon_wkt,
-                        performance_mode
-                    )
+                try:
+                    with st.spinner("Preparing network..."):
+                        graph = load_and_prepare_graph_from_polygon(
+                            st.session_state.selected_polygon_wkt,
+                            performance_mode
+                        )
+                except Exception as e:
+                    st.error(f"❌ Could not load the road network: {e}")
+                    st.stop()
+
+                if graph is None or graph.number_of_edges() == 0:
+                    load_and_prepare_graph_from_polygon.clear()
+                    st.error("❌ The road network came back empty. Try again, or choose a different area or performance mode.")
+                    st.stop()
+
+                st.session_state.graph = graph
 
                 # Mark setup as complete
                 st.session_state.setup_complete = True
-                st.success("✅ Setup complete! Launching application...")
+                st.success(
+                    f"✅ Loaded {graph.number_of_nodes():,} nodes and {graph.number_of_edges():,} road segments. Launching application..."
+                )
                 st.rerun()
     else:
         st.warning("⚠️ Please select a jurisdiction to continue.")
@@ -2429,6 +2442,8 @@ if st.session_state.graph:
     # Show processing indicator below the map
     with st.spinner("Network graph rendered successfully"):
         st.success("✅ Network graph loaded and displayed above")
+else:
+    st.warning("⚠️ No road network is loaded. Use the sidebar to prepare a network for the selected area.")
 
 st.divider()
 st.header("📈 Analysis Results")

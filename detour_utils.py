@@ -142,6 +142,11 @@ def graph_from_polygon_with_fallback(polygon, **kwargs):
             f"{time.monotonic() - started:.0f}s",
             flush=True,
         )
+        if graph.number_of_edges() == 0:
+            # A struggling mirror can answer with an empty result set.
+            errors.append(f"{url}: returned an empty road network")
+            continue
+        graph.graph["overpass_url"] = url
         return graph
     raise ConnectionError(
         "Could not download the road network from any Overpass server.\n"
