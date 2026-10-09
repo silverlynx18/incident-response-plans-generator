@@ -12,6 +12,9 @@ import math
 import re
 import ast
 import random
+import os
+from pathlib import Path
+import requests
 from osm_loader import graph_from_polygon as _load_road_graph
 from typing import (
     Any, Dict, Iterable, List,
@@ -1429,6 +1432,30 @@ def add_buffer_search_results(ax, G, route, additional_data, buffer_miles):
     return buffer_points
 
 
+def _add_preview_basemap(ax):
+    """Identify tile requests and retain routes when optional tiles are blocked."""
+    try:
+        import contextily as ctx
+        cache_dir = Path(os.environ.get("ARPL_CACHE_DIR", ".arpl-cache")) / "tiles"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        # Persistent reuse rather than a new temporary cache on every process.
+        # Do not expire these tiles in less than OSM's minimum seven days.
+        ctx.set_cache_dir(str(cache_dir))
+        ctx.add_basemap(
+            ax, crs="EPSG:4326", source=ctx.providers.OpenStreetMap.Mapnik,
+            headers={"User-Agent": "ARPL/1.6 (+https://o-arpl.streamlit.app/; https://github.com/silverlynx18/incident-response-plans-generator)"},
+            timeout=(5, 15),
+        )
+    except (ImportError, requests.RequestException) as error:
+        print(f"[ARPL] Optional preview basemap unavailable: {error}", flush=True)
+        ax.text(
+            .01, .01,
+            "Basemap unavailable; showing downloaded OSM roads\n© OpenStreetMap contributors",
+            transform=ax.transAxes, fontsize=7, va="bottom",
+            bbox={"facecolor": "white", "alpha": .85, "edgecolor": "none"},
+        )
+
+
 def plot_detour(G, route, flooded_edge, save_name=None, edge_osm_id='', additional_data=None, buffer_miles=0.5, buffer_points=None):
     """
     Plot a detour route with the incident edge highlighted, highway badges, route IDs, and buffer search results.
@@ -1596,14 +1623,7 @@ def plot_detour(G, route, flooded_edge, save_name=None, edge_osm_id='', addition
     title_text = f'Detour Route'
     plt.title(title_text, fontsize=12)
 
-    # Add basemap with road names
-    try:
-        import contextily as ctx
-        # Add OpenStreetMap basemap with road names
-        ctx.add_basemap(ax, crs='EPSG:4326', source=ctx.providers.OpenStreetMap.Mapnik)
-    except ImportError:
-        # Fallback if contextily is not available
-        pass
+    _add_preview_basemap(ax)
 
     # Turn figure frame on and save to disk
     fig.set_frameon(True)
