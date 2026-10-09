@@ -45,6 +45,51 @@ ROADTYPE_SPEEDS_KPH = {
 DEFAULT_SPEED_KPH = 50
 DEFAULT_SPEED_UNIT = 'mph'
 
+# Public Overpass API mirrors, tried in order. Override with a comma-separated
+# OVERPASS_URLS environment variable (base URLs ending in /api).
+DEFAULT_OVERPASS_URLS = [
+    "https://overpass-api.de/api",
+    "https://overpass.private.coffee/api",
+    "https://overpass.kumi.systems/api",
+    "https://maps.mail.ru/osm/tools/overpass/api",
+]
+
+
+def get_overpass_urls() -> List[str]:
+    configured = os.environ.get("OVERPASS_URLS", "")
+    urls = [u.strip().rstrip("/") for u in configured.split(",") if u.strip()]
+    return urls or DEFAULT_OVERPASS_URLS
+
+
+def _set_overpass_url(url: str) -> None:
+    # OSMnx 2.x uses overpass_url; 1.x uses overpass_endpoint.
+    if hasattr(ox.settings, "overpass_url"):
+        ox.settings.overpass_url = url
+    else:
+        ox.settings.overpass_endpoint = url
+    # Mirrors may not implement the /status slot endpoint.
+    ox.settings.overpass_rate_limit = False
+
+
+def graph_from_polygon_with_fallback(polygon, **kwargs):
+    """Download an OSM graph, trying each Overpass mirror until one responds."""
+    errors = []
+    for url in get_overpass_urls():
+        _set_overpass_url(url)
+        try:
+            return ox.graph_from_polygon(polygon, **kwargs)
+        except TypeError:
+            raise
+        except Exception as exc:
+            # An empty area stays empty on every mirror.
+            if type(exc).__name__ == "InsufficientResponseError":
+                raise
+            errors.append(f"{url}: {type(exc).__name__}: {exc}")
+    raise ConnectionError(
+        "Could not download the road network from any Overpass server.\n"
+        + "\n".join(errors)
+    )
+
 # Graph Import and Cleanup Functions
 
 def load_osm_graph(espg, area_polygon_shp=None, osm_nodes_shp=None, osm_edges_shp=None):
@@ -95,7 +140,7 @@ def load_osm_graph(espg, area_polygon_shp=None, osm_nodes_shp=None, osm_edges_sh
         polygon = gdf_area.union_all()
 
         # Download network from this area
-        G = ox.graph_from_polygon(polygon, network_type="drive", simplify=True)
+        G = graph_from_polygon_with_fallback(polygon, network_type="drive", simplify=True)
 
         # Optionally clean up graph using given shp files
         if osm_edges_shp and osm_nodes_shp:

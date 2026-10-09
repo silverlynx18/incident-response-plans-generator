@@ -380,7 +380,7 @@ def load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode="Fast"):
         if performance_mode == "Fast":
             # Fast mode: major roads only (no express lanes)
             custom_filter = '["highway"~"motorway|trunk|primary|secondary|trunk_link|primary_link|secondary_link"]'
-            graph = ox.graph_from_polygon(
+            graph = du.graph_from_polygon_with_fallback(
                 polygon,
                 network_type="drive",
                 simplify=True,
@@ -390,7 +390,7 @@ def load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode="Fast"):
         elif performance_mode == "Balanced":
             # Balanced mode: most roads (no express lanes)
             custom_filter = '["highway"~"motorway|trunk|primary|secondary|tertiary|trunk_link|primary_link|secondary_link|tertiary_link|residential|unclassified"]'
-            graph = ox.graph_from_polygon(
+            graph = du.graph_from_polygon_with_fallback(
                 polygon,
                 network_type="drive",
                 simplify=True,
@@ -399,7 +399,7 @@ def load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode="Fast"):
             )
         else:  # Complete
             # Complete mode: all roads
-            graph = ox.graph_from_polygon(polygon, network_type="drive", simplify=True)
+            graph = du.graph_from_polygon_with_fallback(polygon, network_type="drive", simplify=True)
     with st.spinner("Cleaning and preparing graph..."):
         graph_clean = du.clean_graph(graph)
         graph_prepared = du.prepare_graph(graph_clean)
@@ -1340,7 +1340,7 @@ with st.sidebar:
                         if performance_mode == "Fast":
                             # Fast mode: major roads only (no express lanes)
                             custom_filter = '["highway"~"motorway|trunk|primary|secondary|trunk_link|primary_link|secondary_link"]'
-                            G = ox.graph_from_polygon(
+                            G = du.graph_from_polygon_with_fallback(
                                 poly_geom,
                                 network_type="drive",
                                 simplify=True,
@@ -1350,7 +1350,7 @@ with st.sidebar:
                         elif performance_mode == "Balanced":
                             # Balanced mode: most roads (no express lanes)
                             custom_filter = '["highway"~"motorway|trunk|primary|secondary|tertiary|trunk_link|primary_link|secondary_link|tertiary_link|residential|unclassified"]'
-                            G = ox.graph_from_polygon(
+                            G = du.graph_from_polygon_with_fallback(
                                 poly_geom,
                                 network_type="drive",
                                 simplify=True,
@@ -1359,7 +1359,7 @@ with st.sidebar:
                             )
                         else:  # Complete
                             # Complete mode: all roads
-                            G = ox.graph_from_polygon(
+                            G = du.graph_from_polygon_with_fallback(
                                 poly_geom,
                                 network_type="drive",
                                 simplify=True
