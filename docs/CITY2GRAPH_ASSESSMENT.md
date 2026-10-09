@@ -4,6 +4,8 @@ Date: 2026-10-09. Branch: `development/arpl-next-stage`.
 
 **Scope:** source/metadata assessment only. No package installation, dependency change, runtime replacement or live-app change. Findings below are not runtime compatibility results.
 
+**User clarification:** ARPL's routing is proprietary and the central project capability. Preserve it as the source of truth; evaluate City2Graph only for roadmap-aligned supporting integration. Isochrones and unrelated analytics are out of scope. GTFS is an explicit priority, beginning with the roadmap's D2 ingestion/validation/overlay stage, not an automatic replacement of the routing algorithm.
+
 ## Summary
 
 City2Graph can complement ARPL and replace selected spatial/graph plumbing. It is not a ready replacement for the OSM downloader, incident-closure rules or the existing detour solver. Evaluate a small adapter against the real saved road graph before adopting it.
@@ -28,7 +30,7 @@ The most promising initial use is **relationships between roads, route corridors
 | Signals/assets associated with route corridors or zones | `group_nodes`, `bridge_nodes`, `fixed_radius_graph` | **Strong candidate for selected association plumbing and future typed asset graphs.** `group_nodes` links polygons/points and includes boundary points by default. Construct the intended metric route buffer first; point-to-point radius graphs are not themselves route-buffer searches. Existing GeoPandas joins may be sufficient for a narrow fix. |
 | Graph <-> geometry representation for maps/exports | `nx_to_gdf`, `gdf_to_nx` | **Candidate with identity adapter.** Supports directed multigraphs when explicitly requested, but defaults are unsuitable for road routing and node relabeling needs handling. OSMnx's current conversion already preserves road IDs; replacement must demonstrate a concrete benefit. |
 | Geographic clipping/component filtering | `clip_graph`, `remove_isolated_components` | **Not a blind replacement.** Geometric clipping, outer-neighbor handling and generic component helpers are not the same as the existing buffered OSMnx graph-building sequence. They could support explicit future area operations after parity checks. |
-| Reachable area / distance-limited analysis | `filter_graph_by_distance`, `create_isochrone` | **Useful new capability later.** These compute shortest-path reachability from snapped origins, not total detour-length enforcement or geometric route buffers. They must not redefine existing sliders. |
+| Reachable area / distance-limited analysis | `filter_graph_by_distance`, `create_isochrone` | **Out of scope by user instruction.** API inventory only, not a proposed feature or existing-slider replacement. |
 | Street/turn relationships and urban networks | `dual_graph`, `movement_to_movement_graph` | **Research candidate for G1 and movement representation.** Edge adjacency alone does not establish a legal directed vehicle turn; retain one-way restrictions, edge identity and approved turn policy. |
 | Repeated shortest-path calculations | `nx_to_rx`, `rx_to_nx` and rustworkx | **Benchmark candidate, not yet a replacement.** Could accelerate computation, but conversion overhead and exact directed/keyed routing must be tested. First remove redundant per-pair searches with existing NetworkX if that meets the need. |
 | Future transit ingestion/summary | `load_gtfs`, `load_gbfs`, `travel_summary_graph` | **Good D2 candidate.** Summary edges represent aggregate stop-to-stop service, not road detours or a timetable-dependent multimodal router. D3 still needs separate routing requirements. |
@@ -48,6 +50,8 @@ These are source-level behavior observations, not new upstream issues or locally
 
 ## Small proof-of-concept to approve next
 
+Following the user's clarification, GTFS D2 is the priority candidate. Choose one approved agency feed, validate stops/routes/calendars/service times and display it without altering proprietary road routing. The graph/asset adapter experiment below remains a separate option, not the automatic next task.
+
 Use an isolated research environment on this branch, with `city2graph==1.0.0` base only. Do not modify production `requirements.txt` or the loader yet.
 
 1. Read the genuine saved Richmond OSM graph; do not download a new network or replace it with generated roads.
@@ -56,6 +60,8 @@ Use an isolated research environment on this branch, with `city2graph==1.0.0` ba
 4. Measure installation footprint, import/RSS cost and execution time on the supported local/cloud environment. Reject adoption if it adds substantial overhead without reducing code or providing a roadmap capability.
 
 **Decision gate:** adopt only the proven adapter/helper, or retain existing GeoPandas/OSMnx if simpler. A future rustworkx or GTFS experiment is separate; no automatic GNN, Overture, visualization-engine or database migration.
+
+Routing acceleration has no measured gain yet. Current `get_detour` performs a targeted Dijkstra search for every start/end pair; one search per start covering its requested ends may avoid repetition without new libraries. A Rustworkx backend is a separate benchmark and must preserve closures, costs, identities and the agreed equal-cost route-selection behavior. Fewer search invocations do not imply the same-factor latency reduction, and neither option speeds network downloads or tiles. No routing code was changed by this research.
 
 ## Roadmap alignment
 
