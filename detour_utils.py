@@ -13,6 +13,8 @@ import math
 import re
 import ast
 import random
+import threading
+import time
 from typing import (
     Any, Dict, Iterable, List,
     Optional, Set, Tuple, Union, Sequence, Deque
@@ -71,20 +73,76 @@ def _set_overpass_url(url: str) -> None:
     ox.settings.overpass_rate_limit = False
 
 
+OVERPASS_REQUEST_TIMEOUT_S = 120
+# OSMnx retries 429/504 responses every 55 s with no limit; cap the retries so
+# a busy server fails over to the next mirror instead of hanging forever.
+MAX_BUSY_RETRIES = 2
+
+
+class OverpassBusyError(ConnectionError):
+    """Raised when an Overpass server keeps answering 429/504."""
+
+
+_retry_state = threading.local()
+
+
+def _install_overpass_retry_cap() -> None:
+    try:
+        import osmnx._overpass as ox_overpass
+    except ImportError:
+        return
+    original = getattr(ox_overpass, "_overpass_request", None)
+    if original is None or getattr(original, "_arpl_capped", False):
+        return
+
+    def capped_request(data):
+        # The original function retries by calling this module-level name,
+        # so nested calls here are retries of the same query.
+        depth = getattr(_retry_state, "depth", 0)
+        if depth > MAX_BUSY_RETRIES:
+            raise OverpassBusyError(
+                f"server still busy after {MAX_BUSY_RETRIES} retries"
+            )
+        _retry_state.depth = depth + 1
+        try:
+            return original(data)
+        finally:
+            _retry_state.depth = depth
+
+    capped_request._arpl_capped = True
+    ox_overpass._overpass_request = capped_request
+
+
 def graph_from_polygon_with_fallback(polygon, **kwargs):
     """Download an OSM graph, trying each Overpass mirror until one responds."""
+    _install_overpass_retry_cap()
+    ox.settings.requests_timeout = OVERPASS_REQUEST_TIMEOUT_S
+    # Send OSMnx progress (each request, pause and retry) to the server log.
+    ox.settings.log_console = True
     errors = []
     for url in get_overpass_urls():
         _set_overpass_url(url)
+        started = time.monotonic()
+        print(f"[ARPL] Downloading road network from {url}", flush=True)
         try:
-            return ox.graph_from_polygon(polygon, **kwargs)
+            graph = ox.graph_from_polygon(polygon, **kwargs)
         except TypeError:
             raise
         except Exception as exc:
             # An empty area stays empty on every mirror.
             if type(exc).__name__ == "InsufficientResponseError":
                 raise
+            elapsed = time.monotonic() - started
+            print(f"[ARPL] {url} failed after {elapsed:.0f}s: {type(exc).__name__}: {exc}", flush=True)
             errors.append(f"{url}: {type(exc).__name__}: {exc}")
+            continue
+        print(
+            f"[ARPL] Downloaded {graph.number_of_nodes()} nodes / "
+            f"{graph.number_of_edges()} edges from {url} in "
+            f"{time.monotonic() - started:.0f}s",
+            flush=True,
+        )
+        return graph
     raise ConnectionError(
         "Could not download the road network from any Overpass server.\n"
         + "\n".join(errors)
