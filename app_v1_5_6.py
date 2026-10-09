@@ -1,6 +1,7 @@
 import streamlit as st
 import tempfile
 import os
+import time
 import zipfile
 import detour_utils as du
 import random
@@ -373,10 +374,11 @@ def load_local_shapefile(path, description):
         st.error(f"Error reading {description}: {e}")
     return None
 
-@st.cache_resource
-def load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode="Fast"):
+@st.cache_data(ttl=24 * 60 * 60, max_entries=4)
+def _cached_load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode="Fast"):
     polygon = loads(polygon_wkt)
     with st.spinner("Downloading network from OpenStreetMap..."):
+        download_progress = st.empty()
         if performance_mode == "Fast":
             # Fast mode: major roads only (no express lanes)
             custom_filter = '["highway"~"motorway|trunk|primary|secondary|trunk_link|primary_link|secondary_link"]'
@@ -385,7 +387,8 @@ def load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode="Fast"):
                 network_type="drive",
                 simplify=True,
                 custom_filter=custom_filter,
-                retain_all=False
+                retain_all=False,
+                progress=download_progress.caption
             )
         elif performance_mode == "Balanced":
             # Balanced mode: most roads (no express lanes)
@@ -395,15 +398,29 @@ def load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode="Fast"):
                 network_type="drive",
                 simplify=True,
                 custom_filter=custom_filter,
-                retain_all=False
+                retain_all=False,
+                progress=download_progress.caption
             )
         else:  # Complete
             # Complete mode: all roads
-            graph = du.graph_from_polygon_with_fallback(polygon, network_type="drive", simplify=True)
+            graph = du.graph_from_polygon_with_fallback(
+                polygon, network_type="drive", simplify=True,
+                progress=download_progress.caption
+            )
     with st.spinner("Cleaning and preparing graph..."):
         graph_clean = du.clean_graph(graph)
         graph_prepared = du.prepare_graph(graph_clean)
     return graph_prepared
+
+def load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode="Fast"):
+    # Preparing a graph must not reset the freshness clock of its older source
+    # cache entries. Clear expired templates, then acquire current source data.
+    for attempt in range(2):
+        graph = _cached_load_and_prepare_graph_from_polygon(polygon_wkt, performance_mode)
+        if time.time() < graph.graph.get("osm_cache_valid_until", 0):
+            return graph
+        _cached_load_and_prepare_graph_from_polygon.clear()
+    raise RuntimeError("OSM source cache expired during preparation; please retry")
 
 def process_shapefile_upload(uploaded_files):
     """
@@ -851,7 +868,7 @@ def show_setup_wizard():
                     st.stop()
 
                 if graph is None or graph.number_of_edges() == 0:
-                    load_and_prepare_graph_from_polygon.clear()
+                    _cached_load_and_prepare_graph_from_polygon.clear()
                     st.error("❌ The road network came back empty. Try again, or choose a different area or performance mode.")
                     st.stop()
 
@@ -1338,57 +1355,15 @@ with st.sidebar:
                     bounds = poly_geom.bounds
                     st.info(f"📍 Polygon bounds: ({bounds[0]:.4f}, {bounds[1]:.4f}) to ({bounds[2]:.4f}, {bounds[3]:.4f})")
 
-                    # Use OSMnx to load network with proper highway filtering
-                    # Set timeout for large areas
-                    import signal
+                    # Same loader/cache as setup; no process-signal timeout in
+                    # Streamlit's script thread and no duplicated mode policy.
+                    G_prepared = load_and_prepare_graph_from_polygon(
+                        dumps(poly_geom), performance_mode
+                    )
 
-                    def timeout_handler(signum, frame):
-                        raise TimeoutError("Network download timed out")
-
-                    # Set 5 minute timeout for network download
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(300)  # 5 minutes
-
-                    try:
-                        if performance_mode == "Fast":
-                            # Fast mode: major roads only (no express lanes)
-                            custom_filter = '["highway"~"motorway|trunk|primary|secondary|trunk_link|primary_link|secondary_link"]'
-                            G = du.graph_from_polygon_with_fallback(
-                                poly_geom,
-                                network_type="drive",
-                                simplify=True,
-                                custom_filter=custom_filter,
-                                retain_all=False
-                            )
-                        elif performance_mode == "Balanced":
-                            # Balanced mode: most roads (no express lanes)
-                            custom_filter = '["highway"~"motorway|trunk|primary|secondary|tertiary|trunk_link|primary_link|secondary_link|tertiary_link|residential|unclassified"]'
-                            G = du.graph_from_polygon_with_fallback(
-                                poly_geom,
-                                network_type="drive",
-                                simplify=True,
-                                custom_filter=custom_filter,
-                                retain_all=False
-                            )
-                        else:  # Complete
-                            # Complete mode: all roads
-                            G = du.graph_from_polygon_with_fallback(
-                                poly_geom,
-                                network_type="drive",
-                                simplify=True
-                            )
-                    finally:
-                        signal.alarm(0)  # Cancel the alarm
-
-                    # Check if graph is empty
-                    if len(G.nodes()) == 0:
+                    if G_prepared is None or G_prepared.number_of_edges() == 0:
                         st.error("❌ No network data found for this area. The polygon may be in an area without road data or may be too small.")
                         st.stop()
-
-                    # Clean and prepare the graph for detour analysis
-                    with st.spinner("Preparing graph for detour analysis..."):
-                        G_clean = du.clean_graph(G)
-                        G_prepared = du.prepare_graph(G_clean)
 
                     st.session_state.graph = G_prepared
                     st.session_state.performance_mode = performance_mode
@@ -1991,6 +1966,9 @@ st.header("🗺️ Network Graph View")
 
 if st.session_state.graph:
     G = st.session_state.graph
+    if G.graph.get("osm_source"):
+        timestamps = ", ".join(G.graph.get("osm_timestamps", [])) or "not supplied by source"
+        st.caption(f"OSM source: {G.graph['osm_source']} · Data timestamps (UTC): {timestamps}")
 
     # Convert OSMnx graph to GeoDataFrames
     nodes, edges = ox.graph_to_gdfs(G)

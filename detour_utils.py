@@ -3,7 +3,6 @@ Core detour analysis utilities extracted from the notebook.
 This module contains all the graph processing, analysis, and visualization logic.
 """
 
-import os
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -13,8 +12,7 @@ import math
 import re
 import ast
 import random
-import threading
-import time
+from osm_loader import graph_from_polygon as _load_road_graph
 from typing import (
     Any, Dict, Iterable, List,
     Optional, Set, Tuple, Union, Sequence, Deque
@@ -47,111 +45,9 @@ ROADTYPE_SPEEDS_KPH = {
 DEFAULT_SPEED_KPH = 50
 DEFAULT_SPEED_UNIT = 'mph'
 
-# Public Overpass API mirrors, tried in order. Override with a comma-separated
-# OVERPASS_URLS environment variable (base URLs ending in /api).
-DEFAULT_OVERPASS_URLS = [
-    "https://overpass-api.de/api",
-    "https://overpass.private.coffee/api",
-    "https://overpass.kumi.systems/api",
-    "https://maps.mail.ru/osm/tools/overpass/api",
-]
-
-
-def get_overpass_urls() -> List[str]:
-    configured = os.environ.get("OVERPASS_URLS", "")
-    urls = [u.strip().rstrip("/") for u in configured.split(",") if u.strip()]
-    return urls or DEFAULT_OVERPASS_URLS
-
-
-def _set_overpass_url(url: str) -> None:
-    # OSMnx 2.x uses overpass_url; 1.x uses overpass_endpoint.
-    if hasattr(ox.settings, "overpass_url"):
-        ox.settings.overpass_url = url
-    else:
-        ox.settings.overpass_endpoint = url
-    # Mirrors may not implement the /status slot endpoint.
-    ox.settings.overpass_rate_limit = False
-
-
-OVERPASS_REQUEST_TIMEOUT_S = 120
-# OSMnx retries 429/504 responses every 55 s with no limit; cap the retries so
-# a busy server fails over to the next mirror instead of hanging forever.
-MAX_BUSY_RETRIES = 2
-
-
-class OverpassBusyError(ConnectionError):
-    """Raised when an Overpass server keeps answering 429/504."""
-
-
-_retry_state = threading.local()
-
-
-def _install_overpass_retry_cap() -> None:
-    try:
-        import osmnx._overpass as ox_overpass
-    except ImportError:
-        return
-    original = getattr(ox_overpass, "_overpass_request", None)
-    if original is None or getattr(original, "_arpl_capped", False):
-        return
-
-    def capped_request(data):
-        # The original function retries by calling this module-level name,
-        # so nested calls here are retries of the same query.
-        depth = getattr(_retry_state, "depth", 0)
-        if depth > MAX_BUSY_RETRIES:
-            raise OverpassBusyError(
-                f"server still busy after {MAX_BUSY_RETRIES} retries"
-            )
-        _retry_state.depth = depth + 1
-        try:
-            return original(data)
-        finally:
-            _retry_state.depth = depth
-
-    capped_request._arpl_capped = True
-    ox_overpass._overpass_request = capped_request
-
-
 def graph_from_polygon_with_fallback(polygon, **kwargs):
-    """Download an OSM graph, trying each Overpass mirror until one responds."""
-    _install_overpass_retry_cap()
-    ox.settings.requests_timeout = OVERPASS_REQUEST_TIMEOUT_S
-    # Send OSMnx progress (each request, pause and retry) to the server log.
-    ox.settings.log_console = True
-    errors = []
-    for url in get_overpass_urls():
-        _set_overpass_url(url)
-        started = time.monotonic()
-        print(f"[ARPL] Downloading road network from {url}", flush=True)
-        try:
-            graph = ox.graph_from_polygon(polygon, **kwargs)
-        except TypeError:
-            raise
-        except Exception as exc:
-            # An empty area stays empty on every mirror.
-            if type(exc).__name__ == "InsufficientResponseError":
-                raise
-            elapsed = time.monotonic() - started
-            print(f"[ARPL] {url} failed after {elapsed:.0f}s: {type(exc).__name__}: {exc}", flush=True)
-            errors.append(f"{url}: {type(exc).__name__}: {exc}")
-            continue
-        print(
-            f"[ARPL] Downloaded {graph.number_of_nodes()} nodes / "
-            f"{graph.number_of_edges()} edges from {url} in "
-            f"{time.monotonic() - started:.0f}s",
-            flush=True,
-        )
-        if graph.number_of_edges() == 0:
-            # A struggling mirror can answer with an empty result set.
-            errors.append(f"{url}: returned an empty road network")
-            continue
-        graph.graph["overpass_url"] = url
-        return graph
-    raise ConnectionError(
-        "Could not download the road network from any Overpass server.\n"
-        + "\n".join(errors)
-    )
+    """Acquire complete genuine OSM data without changing graph parameters."""
+    return _load_road_graph(polygon, **kwargs)
 
 # Graph Import and Cleanup Functions
 
