@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Core detour analysis utilities extracted from the notebook.
 This module contains all the graph processing, analysis, and visualization logic.

@@ -1,0 +1,35 @@
+# ARPL Streamlit Configuration (Stage 0 Baseline)
+# ===============================================
+# Resolves:
+# - Large MPO shapefile serialization crashes via maxMessageSize = 500 MB
+# - Enterprise proxy & multi-browser issues via enableCORS = false
+# - Brand standard: #E61E28 red accent per Decisions/2025-10-02
+# - In-memory caching and headless execution stability
+
+[server]
+port = 8501
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+maxMessageSize = 500
+maxUploadSize = 500
+runOnSave = false
+
+[theme]
+primaryColor = "#E61E28"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = "full"
+toolbarMode = "minimal"
+
+[runner]
+magicEnabled = true
+fastReruns = true
+enforceZeroReruns = false

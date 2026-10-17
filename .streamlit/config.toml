@@ -1,17 +1,29 @@
+# ARPL Streamlit Configuration (Merged Runtime + Stage 0 Baseline)
 [server]
 headless = true
 port = 8501
-enableCORS = true
-enableXsrfProtection = true
+enableCORS = false
+enableXsrfProtection = false
 fileWatcherType = "poll"
+maxMessageSize = 500
+maxUploadSize = 500
+runOnSave = false
 
 [browser]
 gatherUsageStats = false
 
 [theme]
-primaryColor = "#FF6B6B"
+primaryColor = "#E61E28"
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F0F2F6"
 textColor = "#262730"
 font = "sans serif"
 
+[client]
+showErrorDetails = "full"
+toolbarMode = "minimal"
+
+[runner]
+magicEnabled = true
+fastReruns = true
+enforceZeroReruns = false

@@ -5,3 +5,7 @@ __pycache__/
 cache/
 .arpl-cache/
 session_data/
+
+__pycache__/
+.pytest_cache/
+*.pyc
