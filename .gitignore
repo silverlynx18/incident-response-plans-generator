@@ -1,0 +1,19 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Databases & local saved states
+*.db
+database/*.db
+saved_sessions/*.json
+saved_sessions/*.pkl
+
+# Temporary data and virtual environments
+venv/
+.env
+.venv/
+dist/
+build/
+*.egg-info/
