@@ -1,0 +1,9 @@
+gdal-bin
+libgdal-dev
+gdal
+proj-bin
+proj-data
+proj-utils
+libproj-dev
+geos
+libgeos-dev
